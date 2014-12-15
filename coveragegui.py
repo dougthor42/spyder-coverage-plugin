@@ -15,7 +15,7 @@
 from __future__ import with_statement, print_function
 
 from spyderlib.qt.QtGui import (QHBoxLayout, QWidget,
-                                QMessageBox, QVBoxLayout, QLabel)
+                                QMessageBox, QVBoxLayout, QLabel, QFont)
 from spyderlib.qt.QtCore import SIGNAL, QProcess, QByteArray, QTextCodec
 locale_codec = QTextCodec.codecForLocale()
 from spyderlib.qt.compat import getopenfilename
@@ -87,6 +87,7 @@ class ResultsWindow(QWidget):
         self.editor = codeeditor.CodeEditor(self)
         self.editor.setup_editor(linenumbers=False, language='py',
                                  scrollflagarea=False, edge_line=False)
+        self.editor.set_font(QFont('Consolas'))
 
         self.connect(self.editor, SIGNAL("focus_changed()"),
                      lambda: self.emit(SIGNAL("focus_changed()")))
@@ -230,8 +231,6 @@ class CoverageWidget(QWidget):
         """
         Run coverage analysis on the active file.
         """
-#        pass
-        print("Running `analyze`")
         if COVERAGE_PATH is None:
             return
         filename = to_text_string(filename)    # filename is a QString instance
@@ -247,7 +246,7 @@ class CoverageWidget(QWidget):
             self.start()
 
     def select_file(self):
-        print("Running `select_file`")
+        """ Select the file to run """
         self.emit(SIGNAL('redirect_stdio(bool)'), False)
         filename, _selfilter = getopenfilename(self,
                                                _("Select Python file"),
@@ -258,17 +257,16 @@ class CoverageWidget(QWidget):
             self.analyze(filename)
 
     def remove_obsolete_items(self):
-        """Removing obsolete items"""
-        print("Running `remove_obsolete_items")
+        """ Remove obsolete items from the data log"""
         self.rdata = [(filename, data) for filename, data in self.rdata
                       if is_module_or_package(filename)]
 
     def get_filenames(self):
-        print("running `get_filenames`")
+        """ Get filenames that are in the data log """
         return [filename for filename, _data in self.rdata]
 
     def get_data(self, filename):
-        print("Running `get_data`")
+        """ Get data from the data log """
         filename = osp.abspath(filename)
         for index, (fname, data) in enumerate(self.rdata):
             if fname == filename:
@@ -277,7 +275,7 @@ class CoverageWidget(QWidget):
             return None, None
 
     def set_data(self, filename, data):
-        print("Running `set_data`")
+        """ Set data in the data log """
         filename = osp.abspath(filename)
         index, _data = self.get_data(filename)
         if index is not None:
@@ -286,54 +284,28 @@ class CoverageWidget(QWidget):
         self.save()
 
     def save(self):
-        print("Running `save`")
+        """ Save data to the data log """
         while len(self.rdata) > self.max_entries:
             self.rdata.pop(-1)
         pickle.dump([self.VERSION]+self.rdata, open(self.DATAPATH, 'wb'), 2)
 
     def show_log(self):
-        print("Running `show_log`")
+        print("Show Log was clicked! Doesn't do anything yet...")
         pass
 #        if self.output:
 #            TextEditor(self.output, title=_("Pylint output"),
 #                       readonly=True, size=(700, 500)).exec_()
 
-    def run_coverage_analysis(self, filename):
+    def run_report(self, filename):
         """
-        Run the coverage analysis for the file.
+        Run the coverage reporting for the file.
 
-        This is run first and assumed to be OK. The `start` method runs
-        the `coverage report` function to grab the output.
+        Calls ``coverage report`` as a separate thread.
+
+        Redirects all output to ``self.read_output()`` method.
+
+        Upon finish, calls the ``self.finished`` method.
         """
-        print("Running coverage on {}!".format(filename))
-
-        self.process = QProcess(self)
-        self.process.setProcessChannelMode(QProcess.SeparateChannels)
-        self.process.setWorkingDirectory(osp.dirname(filename))
-#        self.connect(self.process, SIGNAL("readyReadStandardOutput()"),
-#                     self.read_output)
-#        self.connect(self.process, SIGNAL("readyReadStandardError()"),
-#                     lambda: self.read_output(error=True))
-#        self.connect(self.process,
-#                     SIGNAL("finished(int,QProcess::ExitStatus)"),
-#                     self.finished)
-        self.connect(self.stop_button, SIGNAL("clicked()"),
-                     self.process.kill)
-
-        p_args = ['run', filename]
-        self.process.start(COVERAGE_PATH, p_args)
-
-    def start(self):
-        """
-        Run coverage analisys.
-        """
-        print("running `start` code")
-        filename = to_text_string(self.filecombo.currentText())
-#        filename = "C:\\WinPython27\\projects\\misc\\temp1.py"
-        print("filename = {}".format(filename))
-
-        # run the coverage analysis
-        self.run_coverage_analysis(filename)
 
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.SeparateChannels)
@@ -348,11 +320,51 @@ class CoverageWidget(QWidget):
         self.connect(self.stop_button, SIGNAL("clicked()"),
                      self.process.kill)
 
+        # start the process which runs the reporting function.
+        p_args = ['report', '-m']
+        self.process.start(COVERAGE_PATH, p_args)
+
+        running = self.process.waitForStarted()
+        self.set_running_state(running)
+        if not running:
+            QMessageBox.critical(self, _("Error"),
+                                 _("Process failed to start"))
+
+    def start(self):
+        """
+        Run coverage analisys.
+
+        Calls ``coverage run <filepath>`` as a seperate thread.
+
+        Redirects all standard output to the ``self.read_output()`` method.
+
+        Upon finished signal, calls run_report().
+        """
+        filename = to_text_string(self.filecombo.currentText())
+
+        # if we're running this file directly, then run a different file for
+        # coverage so that we don't fall into recursion.
+        if osp.basename(filename) == "coveragegui.py":
+            filename = osp.join(osp.split(filename)[0], "__init__.py")
+
+        self.process = QProcess(self)
+        self.process.setProcessChannelMode(QProcess.SeparateChannels)
+        self.process.setWorkingDirectory(osp.dirname(filename))
+        self.connect(self.process, SIGNAL("readyReadStandardOutput()"),
+                     self.read_output)
+        self.connect(self.process, SIGNAL("readyReadStandardError()"),
+                     lambda: self.read_output(error=True))
+        self.connect(self.process,
+                     SIGNAL("finished(int,QProcess::ExitStatus)"),
+                     lambda: self.run_report(filename))
+        self.connect(self.stop_button, SIGNAL("clicked()"),
+                     self.process.kill)
+
         self.output = ''
         self.error_output = ''
 
-        # run the coverage report
-        p_args = ['report']
+        # start the process which runs the coverage analysis.
+        p_args = ['run', filename]
         self.process.start(COVERAGE_PATH, p_args)
 
         running = self.process.waitForStarted()
@@ -362,16 +374,19 @@ class CoverageWidget(QWidget):
                                  _("Process failed to start"))
 
     def set_running_state(self, state=True):
-        print("Setting running state to {}.".format(state))
+        """ Sets the running state """
         self.start_button.setEnabled(not state)
         self.stop_button.setEnabled(state)
 
     def read_output(self, error=False):
-        print("Read output")
+        """
+        Reads the output, both standard and error, to instance attributes
+        """
         if error:
             self.process.setReadChannel(QProcess.StandardError)
         else:
             self.process.setReadChannel(QProcess.StandardOutput)
+
         qba = QByteArray()
         while self.process.bytesAvailable():
             if error:
@@ -379,14 +394,13 @@ class CoverageWidget(QWidget):
             else:
                 qba += self.process.readAllStandardOutput()
         text = to_text_string(locale_codec.toUnicode(qba.data()))
-        print("output text is:\n{}\n".format(text))
         if error:
             self.error_output += text
         else:
             self.output += text
 
     def finished(self):
-        print("Running `finished`")
+        """ Processes the finish stae """
         self.set_running_state(False)
         if not self.output:
             if self.error_output:
@@ -395,22 +409,20 @@ class CoverageWidget(QWidget):
                       file=sys.stderr)
             return
 
-        print("Running finished. Now to parse the data.")
-
         filename = to_text_string(self.filecombo.currentText())
         self.set_data(filename, (time.localtime(), self.output))
         self.output = self.error_output + self.output
         self.show_data(justanalyzed=True)
 
     def kill_if_running(self):
-        print("Running `kill_if_running`")
+        """ Kills the process if it's running """
         if self.process is not None:
             if self.process.state() == QProcess.Running:
                 self.process.kill()
                 self.process.waitForFinished()
 
     def show_data(self, justanalyzed=False):
-        print("Running `show_data`")
+        """ Shows the data """
         if not justanalyzed:
             self.output = None
         self.log_button.setEnabled(self.output is not None
