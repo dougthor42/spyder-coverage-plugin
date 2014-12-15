@@ -350,8 +350,8 @@ class CoverageWidget(QWidget):
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.SeparateChannels)
         self.process.setWorkingDirectory(osp.dirname(filename))
-        self.connect(self.process, SIGNAL("readyReadStandardOutput()"),
-                     self.read_output)
+#        self.connect(self.process, SIGNAL("readyReadStandardOutput()"),
+#                     self.read_output)
         self.connect(self.process, SIGNAL("readyReadStandardError()"),
                      lambda: self.read_output(error=True))
         self.connect(self.process,
