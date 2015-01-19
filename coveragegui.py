@@ -234,6 +234,7 @@ class CoverageWidget(QWidget):
         if COVERAGE_PATH is None:
             return
         filename = to_text_string(filename)    # filename is a QString instance
+        print(filename)
         self.kill_if_running()
         index, _data = self.get_data(filename)
         if index is None:
@@ -400,7 +401,8 @@ class CoverageWidget(QWidget):
             self.output += text
 
     def finished(self):
-        """ Processes the finish stae """
+        """ Processes the finish state """
+
         self.set_running_state(False)
         if not self.output:
             if self.error_output:
