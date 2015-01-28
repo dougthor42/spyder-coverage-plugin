@@ -16,7 +16,7 @@ Usage
 -----
 
 With the file open that you want to run coverage on, press
-``ALT``+``F11``.
+``ALT`` + ``F11``.
 
 Requires
 --------
